@@ -19,7 +19,7 @@ per-server token, and pulls its own updates from **this** repo — never from th
 
 ## 0. Put this project on GitHub
 
-Push this folder to its own GitHub repository, for example `github.com/you/watchdog-sub`.
+This project lives in its own GitHub repository: `github.com/bababoeiii/WATCHDOG_SUB`.
 A **public** repo is simplest: the main server's bot can then give a one-line installer for each
 sub server. A **private** repo works too: create a fine-grained token with read-only *Contents*
 access and pass it as `UPDATE_GITHUB_TOKEN` (in `.env`) and `--github-token` (installer).
@@ -33,8 +33,8 @@ On the machine to monitor (Linux with systemd, Node.js 18+), **paste the one-lin
 bot gave you for `/add <name>` (it already contains the token and the main server URL):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/you/watchdog-sub/main/install.sh | sudo bash -s -- \
-  --repo https://github.com/you/watchdog-sub.git --branch main \
+curl -fsSL https://raw.githubusercontent.com/bababoeiii/WATCHDOG_SUB/main/install.sh | sudo bash -s -- \
+  --repo https://github.com/bababoeiii/WATCHDOG_SUB.git --branch main \
   --main https://watchdog.example.com --token wd_Xb3k…
 ```
 
