@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Install (or update) the Watchdog sub server as a systemd service, with auto-update from GitHub.
+# Installs git and Node.js 22 (NodeSource; NODE_MAJOR=20 for another) when they're missing.
 #
 # A) From a clone of your repo:
 #      cp .env.example .env     # paste MAIN_SERVER_URL + AGENT_TOKEN
 #      sudo bash install.sh
 #
 # B) One line, nothing cloned yet (the bot's /add reply gives you this ready-made):
-#      curl -fsSL https://raw.githubusercontent.com/OWNER/watchdog-sub/main/install.sh | sudo bash -s -- \
-#        --repo https://github.com/OWNER/watchdog-sub.git --main https://watchdog.example.com --token wd_xxx
+#      curl -fsSL https://raw.githubusercontent.com/bababoeiii/WATCHDOG_SUB/main/install.sh | sudo bash -s -- \
+#        --repo https://github.com/bababoeiii/WATCHDOG_SUB.git --main https://watchdog.example.com --token wd_xxx
 #
 # Options:
 #   --repo URL            GitHub repository to install from and pull updates from
@@ -30,16 +31,40 @@ while [[ $# -gt 0 ]]; do
     --github-token) GH_TOKEN="$2"; shift 2;;
     --no-auto-update) AUTO="false"; shift;;
     --dir) DIR="$2"; DIR_SET=true; shift 2;;
-    -h|--help) sed -n '2,22p' "$0" 2>/dev/null || true; exit 0;;
+    -h|--help) sed -n '2,23p' "$0" 2>/dev/null || true; exit 0;;
     *) echo "Unknown option: $1"; exit 1;;
   esac
 done
 die() { echo "✖ $*" >&2; exit 1; }
+# Install Node.js from NodeSource: distro packages are often older than 18 (Ubuntu 22.04 ships 12).
+# NODE_MAJOR=20 bash install.sh … picks another version. Returns 1 if it can't (unknown package manager).
+install_node() {
+  local major="${NODE_MAJOR:-22}" pm
+  echo "==> Node.js 18+ not found: installing Node.js ${major}.x from NodeSource"
+  if command -v apt-get >/dev/null; then
+    apt-get update -qq || return 1
+    apt-get install -y -qq ca-certificates curl || return 1
+    curl -fsSL "https://deb.nodesource.com/setup_${major}.x" | bash - >/dev/null || return 1
+    apt-get install -y -qq nodejs || return 1
+  elif pm="$(command -v dnf || command -v yum)"; then
+    command -v curl >/dev/null || "$pm" install -y -q curl || return 1
+    "$pm" module disable -y nodejs >/dev/null 2>&1 || true # RHEL 8/9: the AppStream module would win
+    curl -fsSL "https://rpm.nodesource.com/setup_${major}.x" | bash - >/dev/null || return 1
+    "$pm" install -y -q nodejs || return 1
+  else
+    return 1
+  fi
+  hash -r
+}
 
 [[ $EUID -eq 0 ]] || die "Run as root (sudo)."
 command -v systemctl >/dev/null || die "systemd not found. Run it with 'npm start' (or pm2) instead."
-command -v node >/dev/null || die "Node.js 18+ is required: https://nodejs.org/en/download"
-(( $(node -p 'process.versions.node.split(".")[0]') >= 18 )) || die "Node.js 18+ is required (found $(node -v))."
+node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
+if ! command -v node >/dev/null || (( $(node_major) < 18 )); then
+  install_node || die "Couldn't install Node.js automatically. Install Node.js 18+ yourself (https://nodejs.org/en/download) and run this again."
+fi
+(( $(node_major) >= 18 )) || die "Node.js 18+ is required (found $(node -v 2>/dev/null || echo none))."
+echo "Using Node.js $(node -v) at $(command -v node)"
 if ! command -v git >/dev/null; then
   echo "==> Installing git"
   if command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq git
@@ -87,7 +112,7 @@ if [[ -n "$REPO" ]]; then
   fi
   [[ -d "$APP/src" ]] || die "The repository has no src/ folder (is this the watchdog-sub repo?)."
 else
-  [[ -n "$SRC_DIR" ]] || die "Pass --repo https://github.com/OWNER/watchdog-sub.git"
+  [[ -n "$SRC_DIR" ]] || die "Pass --repo https://github.com/bababoeiii/WATCHDOG_SUB.git"
   echo "==> No git repository found: copying files. Auto-update needs a git clone (use --repo)."
   mkdir -p "$APP"
   if [[ "$(realpath "$SRC_DIR")" != "$(realpath -m "$APP")" ]]; then
