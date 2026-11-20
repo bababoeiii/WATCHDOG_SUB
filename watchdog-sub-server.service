@@ -1,0 +1,20 @@
+[Unit]
+Description=Watchdog sub server (reports metrics to the main server)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@APP@
+ExecStart=@NODE@ @APP@/src/agent.js
+# Always restart: this is also how a downloaded update gets applied.
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+# Runs as root so it can read every process and sensor; it only reads system stats.
+Nice=10
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
