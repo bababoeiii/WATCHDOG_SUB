@@ -68,6 +68,7 @@ Installer options: `--github-token TOKEN` (private repo), `--branch NAME`, `--no
 | `UPDATE_CHECK_MINUTES` | 30 | how often to check for a new version |
 | `UPDATE_BRANCH` | checked-out branch | branch to follow |
 | `UPDATE_GITHUB_TOKEN` | — | only for a private repository |
+| `ALLOW_REMOTE_REBOOT` | false | `true` lets owners and staff reboot this machine from the main server's web portal (after a confirmation). Restart the agent after changing it |
 
 ## Updates
 
@@ -90,7 +91,8 @@ npm test     # real metrics sample, caching, settings validation
 
 ## Security
 
-- The sub server runs as root so it can read every process and sensor. It only reads system stats.
+- The sub server runs as root so it can read every process and sensor. It only reads system stats,
+  and reboots the machine only when `ALLOW_REMOTE_REBOOT=true` and the main server asks for it.
 - It authenticates to the main server with its own token (`Authorization: Bearer wd_…`). Use `https://`
   for `MAIN_SERVER_URL`: over plain `http://` the token travels unencrypted.
 - Auto-update runs whatever is pushed to the branch, so protect the branch on GitHub (who can push).

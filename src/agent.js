@@ -9,6 +9,7 @@
 //   UPDATE_CHECK_MINUTES=30
 //   UPDATE_BRANCH=                default: the checked-out branch
 //   UPDATE_GITHUB_TOKEN=                 only for a private repository
+//   ALLOW_REMOTE_REBOOT=false     true = the main server's web portal may reboot this machine
 //
 //   npm start            run
 //   npm run check        print one sample and exit
@@ -42,6 +43,8 @@ const INTERVAL = intervalSec * 1000;
 const MAX_BACKOFF = 30_000; // while the main server is unreachable, retry at most every 30 s
 const ONCE = process.argv.includes("--once");
 const AUTO_UPDATE = !["0", "false", "no", "off"].includes(String(process.env.AUTO_UPDATE ?? "true").toLowerCase());
+// Off unless set: whoever controls the main server could otherwise reboot this machine.
+const ALLOW_REBOOT = ["1", "true", "yes", "on"].includes(String(process.env.ALLOW_REMOTE_REBOOT ?? "").trim().toLowerCase());
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -157,6 +160,21 @@ async function main() {
       log(`Updated ${r.from} → ${r.to}. Restart the agent to run the new version.`);
     }
   }
+  // Reboot asked for from the main server's web portal (only with ALLOW_REMOTE_REBOOT=true).
+  // systemd then stops this agent with SIGTERM, and stop() tells the main server "shutting down".
+  let rebooting = false;
+  const rebootMachine = () => {
+    if (!ALLOW_REBOOT) return log("Reboot requested by the main server, refused: ALLOW_REMOTE_REBOOT is off");
+    if (rebooting) return;
+    rebooting = true;
+    log("Reboot requested by the main server: rebooting now");
+    execFile("systemctl", ["reboot"], { timeout: 15_000 }, (err) => {
+      if (!err) return;
+      rebooting = false;
+      log(`Reboot failed: ${err.message} (the agent must run as root)`);
+    });
+  };
+
   const stop = async (signal) => {
     if (stopping) return;
     stopping = true;
@@ -174,6 +192,7 @@ async function main() {
   process.on("SIGINT", () => stop("SIGINT"));
 
   log(`Reporting to ${MAIN} every ${INTERVAL / 1000}s`);
+  log(`Remote reboot from the web portal: ${ALLOW_REBOOT ? "allowed" : "off (ALLOW_REMOTE_REBOOT=true to allow)"}`);
   if (updater?.enabled) {
     log(`Auto-update ${AUTO_UPDATE ? "on" : "off"}: ${updater.remote} (${updater.branch}) @ ${updater.info().commit}`);
     updater.start(
@@ -201,8 +220,10 @@ async function main() {
     try {
       const res = await post("/api/agent/report", {
         ...sample, agent_version: VERSION, version: versionInfo(), interval: INTERVAL / 1000, ts: Date.now() / 1000,
+        allow_reboot: ALLOW_REBOOT,
       });
       if (res.update) applyUpdate("requested by the main server");
+      if (res.reboot) rebootMachine();
       if (registeredAs !== res.name) {
         log(`Connected — this server is "${res.name}" on the main server`);
         registeredAs = res.name;
