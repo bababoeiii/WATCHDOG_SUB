@@ -42,3 +42,52 @@ test("bad settings stop the agent with a clear message", async () => {
   assert.notEqual(missing.code, 0);
   assert.match(missing.out, /Set MAIN_SERVER_URL and AGENT_TOKEN/);
 });
+
+// ---- per-CPU temperatures from /sys/class/hwmon (a fake tree here)
+import fs from "node:fs";
+import os from "node:os";
+import { readCpuSockets } from "../src/collect.js";
+
+function fakeHwmon(devices) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hwmon-"));
+  devices.forEach((d, i) => {
+    const dir = path.join(root, `hwmon${i}`);
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "name"), `${d.name}\n`);
+    for (const [k, v] of Object.entries(d.files || {})) fs.writeFileSync(path.join(dir, k), `${v}\n`);
+    if (d.pci) {
+      const target = path.join(root, "devices", d.pci);
+      fs.mkdirSync(target, { recursive: true });
+      fs.symlinkSync(target, path.join(dir, "device"));
+    }
+  });
+  return root;
+}
+
+test("dual Intel CPUs: one temperature per package, in socket order", async () => {
+  const root = fakeHwmon([
+    { name: "nvme", files: { temp1_input: 41000 } },
+    { name: "coretemp", files: { temp1_label: "Package id 1", temp1_input: 54000, temp2_label: "Core 0", temp2_input: 52000 } },
+    { name: "coretemp", files: { temp1_label: "Package id 0", temp1_input: 61500, temp2_label: "Core 0", temp2_input: 60000 } },
+  ]);
+  assert.deepEqual(await readCpuSockets(root), [{ label: "CPU 1", current: 61.5 }, { label: "CPU 2", current: 54 }]);
+  const t = await new Collector({ hwmonRoot: root }).temperatures();
+  if (process.platform === "linux") {
+    assert.deepEqual(t.cpus.map((c) => c.label), ["CPU 1", "CPU 2"]);
+    assert.ok(t.max >= 61.5);
+  }
+});
+
+test("dual AMD CPUs: Tdie (else Tctl) per k10temp, ordered by PCI address", async () => {
+  const root = fakeHwmon([
+    { name: "k10temp", pci: "0000:80:18.3", files: { temp1_label: "Tctl", temp1_input: 70000, temp2_label: "Tdie", temp2_input: 58000 } },
+    { name: "k10temp", pci: "0000:00:18.3", files: { temp1_label: "Tctl", temp1_input: 63000 } },
+  ]);
+  assert.deepEqual(await readCpuSockets(root), [{ label: "CPU 1", current: 63 }, { label: "CPU 2", current: 58 }]);
+});
+
+test("one CPU, odd values or no sensors: nothing to split", async () => {
+  assert.equal((await readCpuSockets(fakeHwmon([{ name: "coretemp", files: { temp1_label: "Package id 0", temp1_input: 50000 } }]))).length, 1);
+  assert.deepEqual(await readCpuSockets(fakeHwmon([{ name: "coretemp", files: { temp1_label: "Package id 0", temp1_input: 0 } }])), []);
+  assert.deepEqual(await readCpuSockets("/nonexistent"), []);
+});
